@@ -33,7 +33,7 @@ impl<T: ArrayType> Array<T> {
         Self::from_core(*Self::none())
     }
 
-    /// Creates a new empty array.
+    /// Creates a new empty array with space for `cap` elements.
     pub fn with_capacity(cap: usize) -> Self {
         let mut this = Array::from_core(*Self::none());
         this.reserve(cap);
@@ -49,7 +49,10 @@ impl<T: ArrayType> Array<T> {
     /// Shrinks the arrays allocated capacity down to its currently used size.
     #[inline]
     pub fn shrink_to_fit(&mut self) {
-        unsafe { errcode_to_result(ffi::blArrayShrink(self.core_mut())).unwrap() };
+        unsafe {
+            errcode_to_result(ffi::blArrayShrink(self.core_mut()))
+                .expect("memory allocation failed")
+        };
     }
 
     /// Reserves capacity for at least n items.
@@ -60,7 +63,7 @@ impl<T: ArrayType> Array<T> {
     /// [`OutOfMemory`](../error/enum.Error.html#variant.OutOfMemory) error
     #[inline]
     pub fn reserve(&mut self, n: usize) {
-        self.try_reserve(n).unwrap();
+        self.try_reserve(n).expect("memory allocation failed");
     }
 
     /// Reserves capacity for at least n items.
@@ -78,7 +81,7 @@ impl<T: ArrayType> Array<T> {
                 n.min(self.len()),
                 ptr::null(),
             ))
-            .unwrap()
+            .expect("memory allocation failed")
         };
     }
 
@@ -97,8 +100,8 @@ impl<T: ArrayType> Array<T> {
                 n,
                 buff.as_ptr() as *const _,
             ))
-            .unwrap()
-        }
+            .expect("memory allocation failed")
+        };
     }
 
     /// Removes the element at the given index.
@@ -143,52 +146,54 @@ impl<T: ArrayType> Array<T> {
     }
 }
 
-// Copy bound to prevent from passing cores as ref resulting in a ref count
-// clone
 impl<T> Array<T>
 where
-    T: ArrayType + Copy,
+    T: ArrayType + Clone,
 {
     /// Appends all items in the slice to the array.
     #[inline]
-    pub fn extend_from_slice(&mut self, data: &[T]) -> Result<()> {
+    pub fn extend_from_slice<S: AsRef<[T]>>(&mut self, data: S) {
         unsafe {
             errcode_to_result(ffi::blArrayAppendView(
                 self.core_mut(),
-                data.as_ptr() as *const _,
-                data.len(),
+                data.as_ref().as_ptr() as *const _,
+                data.as_ref().len(),
             ))
-        }
+            .expect("memory allocation failed")
+        };
     }
 
     /// Inserts all items in the slice into the array at the given index.
     #[inline]
-    pub fn insert_from_slice(&mut self, index: usize, data: &[T]) -> Result<()> {
+    pub fn insert_from_slice<S: AsRef<[T]>>(&mut self, index: usize, data: S) {
         unsafe {
             errcode_to_result(ffi::blArrayInsertView(
                 self.core_mut(),
                 index,
-                data.as_ptr() as *const _,
-                data.len(),
+                data.as_ref().as_ptr() as *const _,
+                data.as_ref().len(),
             ))
-        }
+            .expect("memory allocation failed")
+        };
     }
 
     /// Replaces the elements specified by the range of indices with the given
     /// slice.
     #[inline]
-    pub fn replace_from_slice<R>(&mut self, range: R, data: &[T]) -> Result<()>
+    pub fn replace_from_slice<R, S>(&mut self, range: R, data: S)
     where
         R: ops::RangeBounds<usize>,
+        S: AsRef<[T]>,
     {
         unsafe {
             errcode_to_result(ffi::blArrayReplaceView(
                 self.core_mut(),
                 &bl_range(range),
-                data.as_ptr() as *const _,
-                data.len(),
+                data.as_ref().as_ptr() as *const _,
+                data.as_ref().len(),
             ))
-        }
+            .expect("memory allocation failed")
+        };
     }
 }
 
@@ -216,27 +221,29 @@ impl<T: ArrayType> FromIterator<T> for Array<T> {
     }
 }
 
-impl<T: ArrayType> From<Vec<T>> for Array<T> {
+impl<T: ArrayType + Clone> From<Vec<T>> for Array<T> {
     fn from(v: Vec<T>) -> Self {
         let mut this = Self::with_capacity(v.len());
-        unsafe {
-            errcode_to_result(ffi::blArrayAppendView(
-                this.core_mut(),
-                v.as_ptr() as *const _,
-                v.len(),
-            ))
-            .unwrap();
-        }
+        this.extend_from_slice(&v);
+        this
+    }
+}
+
+impl<'a, T> From<&'a [T]> for Array<T>
+where
+    T: ArrayType + Clone,
+{
+    fn from(v: &[T]) -> Self {
+        let mut this = Self::with_capacity(v.len());
+        this.extend_from_slice(v);
         this
     }
 }
 
 impl io::Write for Array<u8> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self.extend_from_slice(buf) {
-            Ok(_) => Ok(buf.len()),
-            Err(e) => Err(io::Error::new(io::ErrorKind::Other, e)),
-        }
+        self.extend_from_slice(buf);
+        Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -302,7 +309,7 @@ impl<T: ArrayType> PartialEq for Array<T> {
     }
 }
 
-impl<T: ArrayType + Copy> Clone for Array<T> {
+impl<T: ArrayType> Clone for Array<T> {
     fn clone(&self) -> Self {
         Self::from_core(self.init_weak())
     }
@@ -329,15 +336,15 @@ where
 {
     #[inline]
     pub fn push(&mut self, item: T) {
-        unsafe { T::push(self.core_mut(), item).unwrap() }
+        unsafe { T::push(self.core_mut(), item).expect("memory allocation failed") };
     }
     #[inline]
     pub fn insert(&mut self, index: usize, item: T) {
-        unsafe { T::insert(self.core_mut(), index, item).unwrap() }
+        unsafe { T::insert(self.core_mut(), index, item).expect("memory allocation failed") };
     }
     #[inline]
     pub fn replace(&mut self, index: usize, item: T) {
-        unsafe { T::replace(self.core_mut(), index, item).unwrap() }
+        unsafe { T::replace(self.core_mut(), index, item).expect("memory allocation failed") };
     }
 }
 
@@ -345,13 +352,14 @@ impl Array<ImageCodec> {
     /// Searches for an image codec in the array by the given name.
     #[inline]
     pub fn find_codec_by_name(&self, name: &str) -> Option<&ImageCodec> {
-        ImageCodec::find_by_name(self, name)
+        self.iter().find(|c| c.name() == name)
     }
 
     /// Searches for an image codec in the array by the given data.
     #[inline]
     pub fn find_codec_by_data<R: AsRef<[u8]>>(&self, data: R) -> Option<&ImageCodec> {
-        ImageCodec::find_by_data(self, data)
+        self.into_iter()
+            .max_by_key(|codec| codec.inspect_data(data.as_ref()))
     }
 }
 
@@ -360,10 +368,12 @@ pub trait ArrayType: Sized {
     #[doc(hidden)]
     const IMPL_IDX: usize;
     #[doc(hidden)]
+    #[inline]
     unsafe fn push(core: &mut ffi::BLArrayCore, item: Self) -> Result<()> {
         errcode_to_result(ffi::blArrayAppendItem(core, &item as *const _ as *const _))
     }
     #[doc(hidden)]
+    #[inline]
     unsafe fn insert(core: &mut ffi::BLArrayCore, index: usize, item: Self) -> Result<()> {
         errcode_to_result(ffi::blArrayInsertItem(
             core,
@@ -372,6 +382,7 @@ pub trait ArrayType: Sized {
         ))
     }
     #[doc(hidden)]
+    #[inline]
     unsafe fn replace(core: &mut ffi::BLArrayCore, index: usize, item: Self) -> Result<()> {
         errcode_to_result(ffi::blArrayReplaceItem(
             core,

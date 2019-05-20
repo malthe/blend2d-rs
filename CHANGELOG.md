@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- Remaining ImageDecoder and ImageEncoder functions
+- ImageInfo struct
+
+### Removed
+
+- FindByName and FindByData functions on ImageCodec, use the
+corresponding functions on Array<ImageCodec> instead
+
 ## [0.2.0] - 2018-05-11
 
 ### Changed
@@ -35,6 +45,7 @@
 - Initial release 
 
 
-[Unreleased]: https://github.com/Veykril/blend2d-rs/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/Veykril/blend2d-rs/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Veykril/blend2d-rs/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/Veykril/blend2d-rs/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Veykril/blend2d-rs/compare/v0.1.0...v0.1.1
